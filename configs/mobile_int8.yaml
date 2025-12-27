@@ -1,0 +1,102 @@
+# Mobile Export Configuration (INT8 Quantized)
+
+defaults:
+  - student
+
+# =============================================================================
+# EXPORT SETTINGS
+# =============================================================================
+export:
+  output_dir: "exports/mobile"
+  model_name: "respiramulti_mobile"
+  
+  # Formats to export
+  formats:
+    onnx:
+      enabled: true
+      opset_version: 13
+      dynamic_axes: false  # fixed size for mobile
+      
+    torchscript:
+      enabled: true
+      optimize_for_mobile: true
+      
+    tflite:
+      enabled: true
+      converter: "onnx2tf"  # via ONNX intermediate
+      
+# =============================================================================
+# QUANTIZATION
+# =============================================================================
+quantization:
+  method: "static"  # static quantization with calibration
+  bits: 8
+  backend: "qnnpack"  # optimized for mobile ARM
+  
+  # Calibration
+  calibration:
+    num_samples: 200
+    batch_size: 1
+    
+  # Per-channel quantization for weights
+  per_channel: true
+  
+  # Quantize activations
+  quantize_activations: true
+  
+  # Layers to exclude from quantization (if needed)
+  exclude_layers: []
+
+# =============================================================================
+# PRUNING (FINAL)
+# =============================================================================
+pruning:
+  enabled: true
+  target_sparsity: 0.4
+  structured: true  # channel-wise pruning
+  
+# =============================================================================
+# INPUT SPECIFICATIONS
+# =============================================================================
+input_specs:
+  # Audio input
+  audio:
+    # Each segment processed separately, then tokenized
+    mel_spectrogram:
+      shape: [1, 1, 64, 201]  # [batch, channel, mels, time_frames]
+      dtype: "float32"
+      
+  # Vitals input
+  vitals:
+    shape: [1, 12]  # [batch, features]
+    dtype: "float32"
+    
+  # Token count
+  max_audio_tokens: 20
+  
+# =============================================================================
+# PERFORMANCE TARGETS
+# =============================================================================
+performance:
+  target_latency_ms: 150
+  target_model_size_mb: 15
+  target_memory_mb: 50
+  
+  # Benchmark device
+  benchmark_device: "android_mid_range"
+  
+# =============================================================================
+# REPRESENTATIVE DATASET
+# =============================================================================
+representative_dataset:
+  source: "data/processed"
+  num_samples: 200
+  include_edge_cases: true
+  
+  # Edge cases for calibration
+  edge_cases:
+    - low_snr
+    - missing_vitals
+    - short_audio
+    - noisy_ppg
+

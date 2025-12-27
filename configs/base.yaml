@@ -1,0 +1,292 @@
+# RESPIRA-MULTI Base Configuration
+
+# =============================================================================
+# DATA SETTINGS
+# =============================================================================
+data:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  index_dir: "data/indices"
+  
+  # Audio settings
+  audio:
+    sample_rate: 16000
+    target_lufs: -20.0
+    silence_threshold_db: -40
+    
+    # Spectrogram
+    n_mels: 64
+    n_fft: 400  # 25ms at 16kHz
+    hop_length: 160  # 10ms at 16kHz
+    fmin: 50
+    fmax: 8000
+    
+    # MFCC
+    n_mfcc: 40
+    
+    # Segmentation
+    segment_length_sec: 2.0
+    segment_overlap: 0.5
+    
+  # Video/PPG settings
+  ppg:
+    fps: 30
+    bandpass_low: 0.7  # 42 bpm
+    bandpass_high: 4.0  # 240 bpm
+    detrend_cutoff: 0.5
+    
+  # Session structure
+  session:
+    audio_segments:
+      - cough_shallow
+      - cough_deep
+      - breath_normal
+      - breath_deep
+      - vowel_a
+      - reading
+    video_segments:
+      - finger_ppg
+      - face_video  # optional
+    imu_segments:
+      - imu_chest  # optional
+
+# =============================================================================
+# LABELS
+# =============================================================================
+labels:
+  diseases:
+    - healthy
+    - urti
+    - lrti
+    - asthma
+    - copd
+    - pneumonia
+    - bronchitis
+    - bronchiolitis
+    - bronchiectasis
+    - tb
+    - covid19
+    - heart_failure_pulmonary
+    
+  concepts:
+    binary:
+      - wheeze_presence
+      - crackle_presence
+      - rhonchi_presence
+      - stridor_presence
+      - cough_detected
+    continuous:
+      - cough_rate_est
+      - cough_wetness_proxy
+      - breath_phase_irregularity
+      - speech_breathiness
+      - speech_phrase_read_quality
+      - hr_mean
+      - hr_std
+      - hrv_rmssd
+      - hrv_sdnn
+      - rr_est
+      - spo2_est
+      - perfusion_quality_score
+      
+  # Hierarchy constraints
+  hierarchy:
+    lrti:
+      - pneumonia
+      - bronchitis
+      - bronchiolitis
+      - bronchiectasis
+
+# =============================================================================
+# MODEL ARCHITECTURE
+# =============================================================================
+model:
+  # Audio encoder
+  audio_encoder:
+    backbone: "mobilenetv3_small"  # or efficientnet_lite0
+    pretrained: true
+    input_channels: 1
+    embedding_dim: 256
+    
+  # Conformer blocks (optional)
+  conformer:
+    enabled: true
+    num_layers: 2
+    d_model: 256
+    num_heads: 4
+    conv_kernel_size: 31
+    dropout: 0.1
+    
+  # Vitals encoder
+  vitals_encoder:
+    input_dim: 12  # hr, hrv, rr, spo2, quality, demographics
+    hidden_dims: [128, 128]
+    output_dim: 128
+    activation: "gelu"
+    dropout: 0.1
+    use_missingness_embedding: true
+    
+  # Fusion transformer
+  fusion:
+    d_model: 256
+    num_layers: 4
+    num_heads: 4
+    ff_dim: 512
+    dropout: 0.1
+    use_gated_fusion: true
+    gate_entropy_penalty: 0.05
+    
+  # Heads
+  concept_head:
+    hidden_dim: 256
+    
+  disease_head:
+    hidden_dim: 256
+    use_concept_bottleneck: true
+    residual_weight: 0.3  # balance between concept path and residual
+    
+  # Prototypes
+  prototypes:
+    enabled: true
+    num_prototypes_per_class: 10
+    embedding_dim: 256
+    temperature: 0.1
+
+# =============================================================================
+# TRAINING
+# =============================================================================
+training:
+  # General
+  seed: 42
+  device: "cuda"
+  num_workers: 4
+  
+  # Optimizer
+  optimizer:
+    type: "adamw"
+    lr: 3e-4
+    weight_decay: 1e-4
+    betas: [0.9, 0.999]
+    
+  # Scheduler
+  scheduler:
+    type: "cosine_warmup"
+    warmup_epochs: 5
+    min_lr: 1e-6
+    
+  # Batch size
+  batch_size: 16
+  gradient_accumulation_steps: 1
+  
+  # Epochs
+  max_epochs: 100
+  early_stopping_patience: 15
+  
+  # Loss weights
+  loss_weights:
+    disease: 1.0
+    concept: 0.5
+    gate_entropy: 0.05
+    hierarchy: 0.1
+    
+  # Label smoothing
+  label_smoothing: 0.1
+  
+  # Mixed precision
+  use_amp: true
+  
+  # Gradient clipping
+  max_grad_norm: 1.0
+
+# =============================================================================
+# AUGMENTATION
+# =============================================================================
+augmentation:
+  audio:
+    # SpecAugment
+    spec_augment:
+      enabled: true
+      time_mask_param: 40
+      freq_mask_param: 8
+      num_time_masks: 2
+      num_freq_masks: 2
+      
+    # Additive noise
+    additive_noise:
+      enabled: true
+      snr_range: [0, 25]  # dB
+      noise_types:
+        - street
+        - fan
+        - tv
+        - cafeteria
+        - white
+        
+    # Reverberation
+    reverb:
+      enabled: true
+      rir_dir: "data/raw/rir"
+      
+    # Mic response
+    mic_response:
+      enabled: true
+      eq_range: [-6, 6]  # dB
+      lowpass_range: [4000, 8000]
+      highpass_range: [50, 200]
+      
+    # Time augmentation
+    time_shift_ms: 200
+    time_stretch_range: [0.9, 1.1]
+    
+  # Modality dropout
+  modality_dropout:
+    enabled: true
+    prob: 0.2  # probability of dropping each modality
+
+# =============================================================================
+# EVALUATION
+# =============================================================================
+evaluation:
+  # Metrics
+  metrics:
+    - auroc
+    - auprc
+    - sensitivity_at_specificity
+    - ece
+    - reliability_diagram
+    
+  # Specificity levels for sensitivity
+  specificity_levels: [0.80, 0.90, 0.95]
+  
+  # Calibration
+  calibration:
+    method: "temperature_scaling"
+    ece_bins: 15
+    
+  # Conformal prediction
+  conformal:
+    enabled: true
+    coverage_levels: [0.80, 0.90, 0.95]
+    abstain_threshold: 0.3  # if max prob < threshold, abstain
+
+# =============================================================================
+# EXPORT
+# =============================================================================
+export:
+  output_dir: "exports"
+  formats:
+    - onnx
+    - torchscript
+  
+  # Quantization
+  quantization:
+    enabled: true
+    method: "dynamic"  # or "static" with representative dataset
+    bits: 8
+    
+  # Representative dataset for static quantization
+  representative_samples: 200
+  
+  # Target latency
+  target_latency_ms: 150
+

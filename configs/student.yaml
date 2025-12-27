@@ -1,0 +1,153 @@
+# Student Model Configuration (Mobile-Optimized)
+
+defaults:
+  - base
+
+# =============================================================================
+# STUDENT ARCHITECTURE
+# =============================================================================
+student:
+  # Audio encoder (mobile-optimized)
+  audio_encoder:
+    backbone: "mobilenetv3_small"
+    pretrained: true
+    width_mult: 1.0
+    input_channels: 1
+    embedding_dim: 256
+    
+    # Lightweight conformer on top
+    conformer:
+      enabled: true
+      num_layers: 2
+      d_model: 256
+      num_heads: 4
+      conv_kernel_size: 15  # smaller for mobile
+      dropout: 0.1
+      
+  # Vitals encoder
+  vitals_encoder:
+    input_dim: 12
+    hidden_dims: [128, 128]
+    output_dim: 128
+    activation: "gelu"
+    dropout: 0.1
+    use_missingness_embedding: true
+    missingness_dim: 16
+    
+  # Fusion transformer (lightweight)
+  fusion:
+    d_model: 256
+    num_layers: 4
+    num_heads: 4
+    ff_dim: 512
+    dropout: 0.1
+    use_rotary_embeddings: true
+    use_gated_fusion: true
+    
+  # Concept bottleneck
+  concept_bottleneck:
+    enabled: true
+    concept_dim: 128
+    residual_dim: 128
+    residual_weight: 0.3
+    
+  # Prototype bank
+  prototypes:
+    enabled: true
+    num_per_disease: 10
+    num_per_concept: 5
+    embedding_dim: 256
+    
+# =============================================================================
+# DISTILLATION TRAINING
+# =============================================================================
+distillation_training:
+  # Stage S1: Pure distillation (no hard labels)
+  stage1:
+    epochs: 30
+    use_hard_labels: false
+    use_unlabeled_data: true
+    
+    loss_weights:
+      logit_kl: 1.0
+      feature_l2: 0.5
+      attention_mse: 0.0
+      
+    lr: 5e-4
+    batch_size: 32
+    
+  # Stage S2: Mixed training (hard labels + distillation)
+  stage2:
+    epochs: 40
+    use_hard_labels: true
+    
+    loss_weights:
+      hard_label: 0.7
+      logit_kl: 0.3
+      feature_l2: 0.2
+      concept: 0.5
+      hierarchy: 0.1
+      
+    lr: 1e-4
+    batch_size: 16
+    freeze_backbone_epochs: 5
+    
+  # Stage S3: Calibration
+  stage3:
+    enabled: true
+    method: "temperature_scaling"
+    validation_split: 0.2
+
+# =============================================================================
+# ROBUSTNESS
+# =============================================================================
+robustness:
+  # Modality dropout during training
+  modality_dropout:
+    enabled: true
+    audio_prob: 0.15
+    vitals_prob: 0.2
+    per_segment_prob: 0.1
+    
+  # Feature statistics perturbation (MixStyle-like)
+  mixstyle:
+    enabled: true
+    prob: 0.5
+    alpha: 0.3
+    
+  # Test-time adaptation
+  tta:
+    enabled: true
+    update_only_norms: true
+    entropy_threshold: 0.7
+    max_steps: 3
+    lr: 1e-3
+    rollback_on_collapse: true
+    confidence_collapse_threshold: 0.1
+
+# =============================================================================
+# OPTIMIZATION FOR MOBILE
+# =============================================================================
+optimization:
+  # Quantization-aware training
+  qat:
+    enabled: true
+    start_epoch: 20
+    backend: "fbgemm"  # or "qnnpack" for mobile
+    
+  # Structured pruning
+  pruning:
+    enabled: true
+    method: "magnitude"
+    target_sparsity: 0.3
+    start_epoch: 10
+    end_epoch: 40
+    frequency: 100  # steps between pruning
+    
+  # Knowledge distillation temperature annealing
+  temperature_annealing:
+    enabled: true
+    start_temp: 4.0
+    end_temp: 1.0
+    anneal_epochs: 30
+

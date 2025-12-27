@@ -1,0 +1,124 @@
+# Teacher Models Configuration for Distillation
+
+defaults:
+  - base
+
+# =============================================================================
+# TEACHER ENCODERS
+# =============================================================================
+teachers:
+  # T1: BEATs-style audio SSL transformer
+  beats:
+    enabled: true
+    checkpoint: "microsoft/beats"  # or path to local checkpoint
+    freeze_encoder: false
+    finetune_layers: -1  # -1 = all, or specify number of last layers
+    output_dim: 768
+    
+  # T2: Audio-MAE (masked autoencoder on spectrogram patches)
+  audio_mae:
+    enabled: true
+    checkpoint: "facebook/audio-mae"
+    freeze_encoder: false
+    finetune_layers: -1
+    output_dim: 768
+    patch_size: [16, 16]
+    mask_ratio: 0.8  # for pretraining
+    
+  # T3: AST (Audio Spectrogram Transformer)
+  ast:
+    enabled: true
+    checkpoint: "MIT/ast-finetuned-audioset-10-10-0.4593"
+    freeze_encoder: false
+    finetune_layers: -1
+    output_dim: 768
+    
+  # T4: HuBERT/wav2vec2 for speech
+  speech_encoder:
+    type: "hubert"  # or "wav2vec2"
+    checkpoint: "facebook/hubert-base-ls960"
+    freeze_encoder: false
+    finetune_layers: 4  # finetune last 4 layers
+    output_dim: 768
+    
+  # Ensemble settings
+  ensemble:
+    method: "average"  # average logits + embeddings
+    weights:
+      beats: 1.0
+      audio_mae: 1.0
+      ast: 1.0
+      speech: 0.5  # lower weight for speech-only encoder
+    temperature: 1.0
+
+# =============================================================================
+# TEACHER TRAINING
+# =============================================================================
+teacher_training:
+  # Multi-task learning
+  tasks:
+    disease_classification: true
+    concept_prediction: true
+    contrastive_learning: true
+    
+  # Contrastive learning settings
+  contrastive:
+    temperature: 0.07
+    queue_size: 65536
+    momentum: 0.999
+    
+  # Loss weights
+  loss_weights:
+    disease: 1.0
+    concept: 0.5
+    contrastive: 0.3
+    
+  # Training settings
+  batch_size: 32
+  lr: 1e-4
+  weight_decay: 0.01
+  max_epochs: 50
+  warmup_epochs: 5
+  
+  # Gradient checkpointing for memory efficiency
+  gradient_checkpointing: true
+
+# =============================================================================
+# DISTILLATION SETTINGS
+# =============================================================================
+distillation:
+  # Logit distillation
+  logit_kl:
+    enabled: true
+    temperature: 4.0
+    weight: 1.0
+    
+  # Feature distillation
+  feature_l2:
+    enabled: true
+    weight: 0.5
+    layers:
+      - token_embeddings
+      - cls_embedding
+      - intermediate_layers
+    
+  # Attention distillation
+  attention_mse:
+    enabled: false  # optional, can be unstable
+    weight: 0.1
+    layers: [0, 2]  # which transformer layers to match
+    
+  # Progressive distillation
+  progressive:
+    enabled: true
+    stages:
+      - epochs: [0, 20]
+        distill_weight: 1.0
+        hard_label_weight: 0.0
+      - epochs: [20, 40]
+        distill_weight: 0.7
+        hard_label_weight: 0.3
+      - epochs: [40, -1]
+        distill_weight: 0.3
+        hard_label_weight: 0.7
+
